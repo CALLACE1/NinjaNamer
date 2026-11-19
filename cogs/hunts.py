@@ -90,7 +90,9 @@ class HuntsCog(commands.Cog):
     # --------------------------------------------------------
     # SHINY HUNT DB HELPERS (1 POKEMON PER PERSON)
     # --------------------------------------------------------
-    def _set_shiny_hunt_sync(self, guild_id: int, user_id: int, raw_name: str) -> tuple[bool, str | None, str]:
+    def _set_shiny_hunt_sync(
+        self, guild_id: int, user_id: int, raw_name: str
+    ) -> tuple[bool, str | None, str]:
         key, display_name = self._resolve_pokemon_sync(raw_name)
         if not key:
             return False, None, ""
@@ -115,28 +117,6 @@ class HuntsCog(commands.Cog):
             conn.commit()
             return True, previous_name, display_name
 
-    def _remove_shiny_hunt_sync(self, guild_id: int, user_id: int, raw_name: str | None = None) -> tuple[bool, str]:
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT pokemon_key, pokemon_name FROM shiny_hunts WHERE guild_id = ? AND user_id = ?;",
-                (guild_id, user_id),
-            ).fetchone()
-            if not row:
-                return False, ""
-            current_key = str(row["pokemon_key"])
-            current_name = str(row["pokemon_name"])
-            if raw_name:
-                target_key, _ = self._resolve_pokemon_sync(raw_name)
-                if target_key != current_key:
-                    return False, current_name
-
-            conn.execute(
-                "DELETE FROM shiny_hunts WHERE guild_id = ? AND user_id = ?;",
-                (guild_id, user_id),
-            )
-            conn.commit()
-            return True, current_name
-
     def _get_shiny_hunt_sync(self, guild_id: int, user_id: int) -> str | None:
         with self._connect() as conn:
             row = conn.execute(
@@ -145,7 +125,9 @@ class HuntsCog(commands.Cog):
             ).fetchone()
             return str(row["pokemon_name"]) if row else None
 
-    def _get_shiny_hunters_sync(self, guild_id: int, pokemon_name: str, pokemon_slug: str) -> list[int]:
+    def _get_shiny_hunters_sync(
+        self, guild_id: int, pokemon_name: str, pokemon_slug: str
+    ) -> list[int]:
         keys = {k for k in (_normalize_key(pokemon_name), _normalize_key(pokemon_slug)) if k}
         if not keys:
             return []
@@ -215,7 +197,9 @@ class HuntsCog(commands.Cog):
             conn.commit()
             return cur.rowcount
 
-    def _get_collection_hunters_sync(self, guild_id: int, pokemon_name: str, pokemon_slug: str) -> list[int]:
+    def _get_collection_hunters_sync(
+        self, guild_id: int, pokemon_name: str, pokemon_slug: str
+    ) -> list[int]:
         keys = {k for k in (_normalize_key(pokemon_name), _normalize_key(pokemon_slug)) if k}
         if not keys:
             return []
@@ -238,50 +222,36 @@ class HuntsCog(commands.Cog):
             return await loop.run_in_executor(None, func, *args)
 
     # --------------------------------------------------------
-    # !sh COMMANDS (SINGLE SHINY HUNT PER PERSON)
+    # !sh COMMAND (SINGLE SHINY HUNT PER PERSON)
     # --------------------------------------------------------
-    @commands.group(name="sh", aliases=["shinyhunt", "hunt"], invoke_without_command=True)
+    @commands.command(name="sh", aliases=["shinyhunt", "hunt"])
     @commands.guild_only()
-    async def sh_group(self, ctx: commands.Context):
-        current = await self._run_db(self._get_shiny_hunt_sync, ctx.guild.id, ctx.author.id)
-        if not current:
-            await ctx.reply(
-                "You don't have a shiny hunt set. Use `!sh set <pokemon>` (only 1 Pokémon per person).",
-                mention_author=False,
-            )
+    async def sh_cmd(self, ctx: commands.Context, *, pokemon: str | None = None):
+        if pokemon is None or not pokemon.strip():
+            current = await self._run_db(self._get_shiny_hunt_sync, ctx.guild.id, ctx.author.id)
+            if not current:
+                await ctx.reply(
+                    "You don't have a shiny hunt set. Use `!sh <pokemon name>` to set one.",
+                    mention_author=False,
+                )
+                return
+            await ctx.reply(f"**Your Shiny Hunt:** `{current}`", mention_author=False)
             return
-        await ctx.reply(
-            f"**Your Shiny Hunt (1 max):** `{current}`",
-            mention_author=False,
-        )
 
-    @sh_group.command(name="set", aliases=["add"])
-    @commands.guild_only()
-    async def sh_set(self, ctx: commands.Context, *, pokemon: str):
         ok, prev_name, new_name = await self._run_db(
             self._set_shiny_hunt_sync, ctx.guild.id, ctx.author.id, pokemon
         )
         if not ok or not new_name:
             await ctx.reply("Please provide a valid Pokémon name.", mention_author=False)
             return
+
         if prev_name and prev_name.lower() != new_name.lower():
             await ctx.reply(
-                f"Replaced your shiny hunt **`{prev_name}`** with **`{new_name}`** (only 1 shiny hunt allowed per person).",
+                f"Replaced your shiny hunt **`{prev_name}`** with **`{new_name}`**.",
                 mention_author=False,
             )
         else:
             await ctx.reply(f"Set your shiny hunt to **`{new_name}`**.", mention_author=False)
-
-    @sh_group.command(name="remove", aliases=["rm", "del", "clear"])
-    @commands.guild_only()
-    async def sh_remove(self, ctx: commands.Context, *, pokemon: str | None = None):
-        removed, removed_name = await self._run_db(
-            self._remove_shiny_hunt_sync, ctx.guild.id, ctx.author.id, pokemon
-        )
-        if removed:
-            await ctx.reply(f"Removed your shiny hunt (**`{removed_name}`**).", mention_author=False)
-        else:
-            await ctx.reply("No matching shiny hunt found to remove.", mention_author=False)
 
     # --------------------------------------------------------
     # !collection / !cl COMMANDS (MULTIPLE PER PERSON)
